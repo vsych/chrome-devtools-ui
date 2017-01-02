@@ -1,0 +1,8 @@
+{
+  "name": "chrome-devtools-ui",
+  "version": "1.0.440332",
+  "main": "index.js",
+  "repository": "git@github.com:vsych/chrome-devtools-ui.git",
+  "author": "The Chromium Authors",
+  "license": "SEE LICENSE IN https://chromium.googlesource.com/chromium/src/+/master/LICENSE"
+}
