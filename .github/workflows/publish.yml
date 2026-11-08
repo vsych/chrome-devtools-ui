@@ -1,0 +1,78 @@
+name: Publish latest DevTools
+
+# Runs daily: pulls the newest prebuilt DevTools frontend from Chromium's snapshot builds
+# and publishes it to npm as chrome-devtools-ui@1.0.<chromium revision>.
+#
+# Setup (once):
+#   1. On npmjs.com, open the package settings, add a trusted publisher:
+#      GitHub Actions, repository vsych/chrome-devtools-ui, workflow publish.yml.
+#      No npm token is stored anywhere.
+#   2. Run this workflow manually once to confirm it publishes.
+#   3. Set the repository variable AUTO_PUBLISH=true to enable the daily schedule.
+
+on:
+  schedule:
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Chromium revision to publish (blank = latest)
+        required: false
+
+permissions:
+  contents: read
+  actions: write   # keepalive below
+  id-token: write  # npm trusted publishing + provenance
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || vars.AUTO_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # GitHub disables scheduled workflows after 60 days without repository activity.
+      # This workflow never commits, so re-enable it on every run to keep the schedule alive.
+      - name: Keep schedule alive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/publish.yml/enable"
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Use an npm that supports trusted publishing
+        run: npm install -g npm@^11.5.1
+
+      - name: Download DevTools frontend
+        env:
+          REVISION: ${{ inputs.revision }}
+        run: node scripts/update.mjs --set-version ${REVISION:+--rev "$REVISION"}
+
+      - name: Check whether this revision is already published
+        id: check
+        run: |
+          VERSION=$(node -p 'require("./package.json").version')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if npm view "chrome-devtools-ui@$VERSION" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "chrome-devtools-ui@$VERSION is already on npm, nothing to do."
+          fi
+
+      - name: Test
+        if: steps.check.outputs.exists != 'true'
+        run: |
+          npm test
+          node bin/chrome-devtools-ui.js --port 8090 &
+          sleep 2
+          curl -fsS http://127.0.0.1:8090/ | grep -q '<title>Chrome DevTools</title>'
+          curl -fsS http://127.0.0.1:8090/devtools_app.html >/dev/null
+          curl -fsS http://127.0.0.1:8090/api/info
+
+      - name: Publish to npm
+        if: steps.check.outputs.exists != 'true'
+        run: npm publish --provenance --access public

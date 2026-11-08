@@ -1,0 +1,5 @@
+node_modules/
+# Downloaded by `npm run update`, shipped in the npm package, never committed.
+/front_end/
+*.tgz
+.DS_Store
